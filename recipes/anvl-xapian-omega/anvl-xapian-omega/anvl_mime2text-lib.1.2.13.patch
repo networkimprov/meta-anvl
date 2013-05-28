@@ -1,0 +1,1278 @@
+diff -urN xapian-omega-1.2.13.orig/atomparse.h xapian-omega-1.2.13/atomparse.h
+--- xapian-omega-1.2.13.orig/atomparse.h	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/atomparse.h	2013-02-15 23:26:37.311755908 -0700
+@@ -27,13 +27,13 @@
+ class AtomParser : public HtmlParser {
+     enum { OTHER, TITLE, AUTHOR, KEYWORDS, TEXT } state;
+     bool in_entry, is_ignored;
+-    string type;
++    std::string type;
+   public:
+     AtomParser() : state(OTHER), in_entry(false), is_ignored(false) { }
+-    void process_text(const string &text);
+-    bool opening_tag(const string &tag);
+-    bool closing_tag(const string &tag);
+-    string title, keywords, dump, author;
++    void process_text(const std::string &text);
++    bool opening_tag(const std::string &tag);
++    bool closing_tag(const std::string &tag);
++    std::string title, keywords, dump, author;
+ };
+ 
+ #endif // OMEGA_INCLUDED_ATOMPARSE_H
+diff -urN xapian-omega-1.2.13.orig/htmlparse.h xapian-omega-1.2.13/htmlparse.h
+--- xapian-omega-1.2.13.orig/htmlparse.h	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/htmlparse.h	2013-02-15 23:26:37.311755908 -0700
+@@ -25,23 +25,20 @@
+ #include <string>
+ #include <map>
+ 
+-using std::string;
+-using std::map;
+-
+ class HtmlParser {
+-	map<string, string> parameters;
++	std::map<std::string, std::string> parameters;
+     protected:
+-	void decode_entities(string &s);
++	void decode_entities(std::string &s);
+ 	bool in_script;
+-	string charset;
+-	static map<string, unsigned int> named_ents;
++	std::string charset;
++	static std::map<std::string, unsigned int> named_ents;
+ 
+-	bool get_parameter(const string & param, string & value) const;
++	bool get_parameter(const std::string & param, std::string & value) const;
+     public:
+-	virtual void process_text(const string &/*text*/) { }
+-	virtual bool opening_tag(const string &/*tag*/) { return true; }
+-	virtual bool closing_tag(const string &/*tag*/) { return true; }
+-	virtual void parse_html(const string &text);
++	virtual void process_text(const std::string &/*text*/) { }
++	virtual bool opening_tag(const std::string &/*tag*/) { return true; }
++	virtual bool closing_tag(const std::string &/*tag*/) { return true; }
++	virtual void parse_html(const std::string &text);
+ 	HtmlParser();
+ 	virtual ~HtmlParser() { }
+ };
+diff -urN xapian-omega-1.2.13.orig/loadfile.cc xapian-omega-1.2.13/loadfile.cc
+--- xapian-omega-1.2.13.orig/loadfile.cc	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/loadfile.cc	2013-02-15 23:26:37.311755908 -0700
+@@ -87,7 +87,7 @@
+ 	return false;
+     }
+ 
+-    char blk[4096];
++    char blk[32*1024];
+     size_t n = st.st_size;
+     truncated = (max_to_read && max_to_read < n);
+     if (truncated) {
+@@ -97,20 +97,22 @@
+ 
+     output.resize(0);
+     output.reserve(n);
++    size_t pos = 0;
+     while (n) {
+ 	int c = read(fd, blk, min(n, sizeof(blk)));
+ 	if (c <= 0) {
+ 	    if (c < 0 && errno == EINTR) continue;
+ 	    break;
+ 	}
++#ifdef HAVE_POSIX_FADVISE
++	if (flags & NOCACHE)
++	    posix_fadvise(fd, pos, c, POSIX_FADV_DONTNEED);
++#endif
+ 	output.append(blk, c);
+ 	n -= c;
++	pos += c;
+     }
+ 
+-#ifdef HAVE_POSIX_FADVISE
+-    if (flags & NOCACHE)
+-	posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+-#endif
+ 
+     close(fd);
+ 
+diff -urN xapian-omega-1.2.13.orig/Makefile.am xapian-omega-1.2.13/Makefile.am
+--- xapian-omega-1.2.13.orig/Makefile.am	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/Makefile.am	2013-02-15 23:39:01.686557188 -0700
+@@ -71,7 +71,7 @@
+ 	-I$(top_srcdir)/common \
+ 	-DCONFIGFILE_SYSTEM=\"$(sysconfdir)/omega.conf\" \
+ 	-DPKGLIBBINDIR=\"$(pkglibbindir)\"
+-AM_CXXFLAGS += $(XAPIAN_CXXFLAGS)
++AM_CXXFLAGS += $(XAPIAN_CXXFLAGS) -fPIC
+ 
+ pkglibbindir = $(pkglibdir)/bin
+ pkglibbin_PROGRAMS = omega
+@@ -141,7 +141,7 @@
+  md5wrap.cc xmlparse.cc metaxmlparse.cc utf8convert.cc sample.cc diritor.cc\
+  runfilter.cc freemem.cc common/msvc_dirent.cc xpsxmlparse.cc common/str.cc\
+  pkglibbindir.cc svgparse.cc urlencode.cc atomparse.cc xlsxparse.cc\
+- opendocparse.cc
++ opendocparse.cc mime2text.cc tmpdir.cc
+ if NEED_MKDTEMP
+ omindex_SOURCES += portability/mkdtemp.cc
+ endif
+diff -urN xapian-omega-1.2.13.orig/metaxmlparse.cc xapian-omega-1.2.13/metaxmlparse.cc
+--- xapian-omega-1.2.13.orig/metaxmlparse.cc	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/metaxmlparse.cc	2013-02-15 23:26:37.311755908 -0700
+@@ -21,6 +21,8 @@
+ 
+ #include "metaxmlparse.h"
+ 
++using namespace std;
++
+ void
+ MetaXmlParser::process_text(const string &text)
+ {
+diff -urN xapian-omega-1.2.13.orig/metaxmlparse.h xapian-omega-1.2.13/metaxmlparse.h
+--- xapian-omega-1.2.13.orig/metaxmlparse.h	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/metaxmlparse.h	2013-02-15 23:26:37.311755908 -0700
+@@ -26,10 +26,10 @@
+     enum { NONE, KEYWORDS, TITLE, SAMPLE, AUTHOR } field;
+   public:
+     MetaXmlParser() : field(NONE) { }
+-    void process_text(const string &text);
+-    bool opening_tag(const string &tag);
+-    bool closing_tag(const string &tag);
+-    string title, keywords, sample, author;
++    void process_text(const std::string &text);
++    bool opening_tag(const std::string &tag);
++    bool closing_tag(const std::string &tag);
++    std::string title, keywords, sample, author;
+ };
+ 
+ #endif // OMEGA_INCLUDED_METAXMLPARSE_H
+diff -urN xapian-omega-1.2.13.orig/mime2text.cc xapian-omega-1.2.13/mime2text.cc
+--- xapian-omega-1.2.13.orig/mime2text.cc	1969-12-31 17:00:00.000000000 -0700
++++ xapian-omega-1.2.13/mime2text.cc	2013-02-15 23:40:41.086942184 -0700
+@@ -0,0 +1,668 @@
++/* mime2text.cc: convert common-format files to text for indexing
++ *
++ * Copyright 1999,2000,2001 BrightStation PLC
++ * Copyright 2001,2005 James Aylett
++ * Copyright 2001,2002 Ananova Ltd
++ * Copyright 2002,2003,2004,2005,2006,2007,2008,2009,2010,2011 Olly Betts
++ * Copyright 2009 Frank J Bruzzaniti
++ * Copyright 2011 Liam Breck
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301
++ * USA
++ */
++
++#include <cstring>
++#include <unistd.h>
++
++#include <xapian.h>
++
++#include "runfilter.h"
++#include "myhtmlparse.h"
++#include "md5wrap.h"
++#include "stringutils.h"
++#include "utf8convert.h"
++#include "tmpdir.h"
++#include "xmlparse.h"
++#include "metaxmlparse.h"
++#include "xpsxmlparse.h"
++#include "pkglibbindir.h"
++#include "svgparse.h"
++#include "loadfile.h"
++
++#include "mime2text.h"
++
++using Xapian::Mime2Text;
++
++Mime2Text::Mime2Text(bool noexcl, int sampsize)
++{
++    ignore_exclusions = noexcl;
++    sample_size = sampsize;
++
++    // Plain text:
++    mime_map["txt"] = "text/plain";
++    mime_map["text"] = "text/plain";
++
++    // HTML:
++    mime_map["html"] = "text/html";
++    mime_map["htm"] = "text/html";
++    mime_map["shtml"] = "text/html";
++    mime_map["php"] = "text/html"; // Our HTML parser knows to ignore PHP code.
++
++    // Comma-Separated Values:
++    mime_map["csv"] = "text/csv";
++
++    // PDF:
++    mime_map["pdf"] = "application/pdf";
++
++    // PostScript:
++    mime_map["ps"] = "application/postscript";
++    mime_map["eps"] = "application/postscript";
++    mime_map["ai"] = "application/postscript";
++
++    // OpenDocument:
++    // FIXME: need to find sample documents to test all of these.
++    mime_map["odt"] = "application/vnd.oasis.opendocument.text";
++    mime_map["ods"] = "application/vnd.oasis.opendocument.spreadsheet";
++    mime_map["odp"] = "application/vnd.oasis.opendocument.presentation";
++    mime_map["odg"] = "application/vnd.oasis.opendocument.graphics";
++    mime_map["odc"] = "application/vnd.oasis.opendocument.chart";
++    mime_map["odf"] = "application/vnd.oasis.opendocument.formula";
++    mime_map["odb"] = "application/vnd.oasis.opendocument.database";
++    mime_map["odi"] = "application/vnd.oasis.opendocument.image";
++    mime_map["odm"] = "application/vnd.oasis.opendocument.text-master";
++    mime_map["ott"] = "application/vnd.oasis.opendocument.text-template";
++    mime_map["ots"] = "application/vnd.oasis.opendocument.spreadsheet-template";
++    mime_map["otp"] = "application/vnd.oasis.opendocument.presentation-template";
++    mime_map["otg"] = "application/vnd.oasis.opendocument.graphics-template";
++    mime_map["otc"] = "application/vnd.oasis.opendocument.chart-template";
++    mime_map["otf"] = "application/vnd.oasis.opendocument.formula-template";
++    mime_map["oti"] = "application/vnd.oasis.opendocument.image-template";
++    mime_map["oth"] = "application/vnd.oasis.opendocument.text-web";
++
++    // OpenOffice/StarOffice documents:
++    mime_map["sxc"] = "application/vnd.sun.xml.calc";
++    mime_map["stc"] = "application/vnd.sun.xml.calc.template";
++    mime_map["sxd"] = "application/vnd.sun.xml.draw";
++    mime_map["std"] = "application/vnd.sun.xml.draw.template";
++    mime_map["sxi"] = "application/vnd.sun.xml.impress";
++    mime_map["sti"] = "application/vnd.sun.xml.impress.template";
++    mime_map["sxm"] = "application/vnd.sun.xml.math";
++    mime_map["sxw"] = "application/vnd.sun.xml.writer";
++    mime_map["sxg"] = "application/vnd.sun.xml.writer.global";
++    mime_map["stw"] = "application/vnd.sun.xml.writer.template";
++
++    // MS Office 2007 formats:
++    mime_map["docx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"; // Word 2007
++    mime_map["dotx"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.template"; // Word 2007 template
++    mime_map["xlsx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"; // Excel 2007
++    mime_map["xltx"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.template"; // Excel 2007 template
++    mime_map["pptx"] = "application/vnd.openxmlformats-officedocument.presentationml.presentation"; // PowerPoint 2007 presentation
++    mime_map["ppsx"] = "application/vnd.openxmlformats-officedocument.presentationml.slideshow"; // PowerPoint 2007 slideshow
++    mime_map["potx"] = "application/vnd.openxmlformats-officedocument.presentationml.template"; // PowerPoint 2007 template
++    mime_map["xps"] = "application/vnd.ms-xpsdocument";
++
++    // Macro-enabled variants - these appear to be the same formats as the
++    // above.  Currently we just treat them as the same mimetypes to avoid
++    // having to check for twice as many possible content-types.
++    // MS say: application/vnd.ms-word.document.macroEnabled.12
++    mime_map["docm"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
++    // MS say: application/vnd.ms-word.template.macroEnabled.12
++    mime_map["dotm"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.template";
++    // MS say: application/vnd.ms-excel.sheet.macroEnabled.12
++    mime_map["xlsm"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
++    // MS say: application/vnd.ms-excel.template.macroEnabled.12
++    mime_map["xltm"] = "application/vnd.openxmlformats-officedocument.spreadsheetml.template";
++    // MS say: application/vnd.ms-powerpoint.presentation.macroEnabled.12
++    mime_map["pptm"] = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
++    // MS say: application/vnd.ms-powerpoint.slideshow.macroEnabled.12
++    mime_map["ppsm"] = "application/vnd.openxmlformats-officedocument.presentationml.slideshow";
++    // MS say: application/vnd.ms-powerpoint.presentation.macroEnabled.12
++    mime_map["potm"] = "application/vnd.openxmlformats-officedocument.presentationml.template";
++
++    // Some other word processor formats:
++    mime_map["doc"] = "application/msword";
++    mime_map["dot"] = "application/msword"; // Word template
++    mime_map["wpd"] = "application/vnd.wordperfect";
++    mime_map["wps"] = "application/vnd.ms-works";
++    mime_map["wpt"] = "application/vnd.ms-works"; // Works template
++    mime_map["abw"] = "application/x-abiword"; // AbiWord
++    mime_map["zabw"] = "application/x-abiword-compressed"; // AbiWord compressed
++    mime_map["rtf"] = "text/rtf";
++
++    // Other MS formats:
++    mime_map["xls"] = "application/vnd.ms-excel";
++    mime_map["xlb"] = "application/vnd.ms-excel";
++    mime_map["xlt"] = "application/vnd.ms-excel"; // Excel template
++    mime_map["xlr"] = "application/vnd.ms-excel"; // Later Microsoft Works produced XL format but with a different extension.
++    mime_map["ppt"] = "application/vnd.ms-powerpoint";
++    mime_map["pps"] = "application/vnd.ms-powerpoint"; // Powerpoint slideshow
++    mime_map["msg"] = "application/vnd.ms-outlook"; // Outlook .msg email
++
++    // Perl:
++    mime_map["pl"] = "text/x-perl";
++    mime_map["pm"] = "text/x-perl";
++    mime_map["pod"] = "text/x-perl";
++
++    // TeX DVI:
++    mime_map["dvi"] = "application/x-dvi";
++
++    // DjVu:
++    mime_map["djv"] = "image/vnd.djvu";
++    mime_map["djvu"] = "image/vnd.djvu";
++
++    // SVG:
++    mime_map["svg"] = "image/svg+xml";
++
++    // Debian packages:
++    mime_map["deb"] = "application/x-debian-package";
++    mime_map["udeb"] = "application/x-debian-package";
++
++    // RPM packages:
++    mime_map["rpm"] = "application/x-redhat-package-manager";
++
++    // Extensions to quietly ignore:
++    mime_map["a"] = "ignore";
++    mime_map["dll"] = "ignore";
++    mime_map["dylib"] = "ignore";
++    mime_map["exe"] = "ignore";
++    mime_map["lib"] = "ignore";
++    mime_map["o"] = "ignore";
++    mime_map["obj"] = "ignore";
++    mime_map["so"] = "ignore";
++    mime_map["css"] = "ignore";
++    mime_map["js"] = "ignore";
++
++    commands["application/msword"] = "antiword -mUTF-8.txt ";
++    commands["application/vnd.ms-powerpoint"] = "catppt -dutf-8 ";
++    // Looking at the source of wpd2html and wpd2text I think both output
++    // UTF-8, but it's hard to be sure without sample Unicode .wpd files
++    // as they don't seem to be at all well documented.
++    commands["application/vnd.wordperfect"] = "wpd2text ";
++    // wps2text produces UTF-8 output from the sample files I've tested.
++    commands["application/vnd.ms-works"] = "wps2text ";
++    // Output is UTF-8 according to "man djvutxt".  Generally this seems to
++    // be true, though some examples from djvu.org generate isolated byte
++    // 0x95 in a context which suggests it might be intended to be a bullet
++    // (as it is in CP1250).
++    commands["image/vnd.djvu"] = "djvutxt ";
++}
++
++Mime2Text::Status Mime2Text::convert(const char* filepath, const char* type, Mime2Text::Fields* out_fields)
++{
++    if (!type) {
++        type = strrchr(filepath, '.');
++        if (!type)
++            return Status_TYPE;
++    }
++    out_fields->mimetype = type+(*type == '.');
++    for (std::string::iterator a = out_fields->mimetype.begin(); a != out_fields->mimetype.end(); ++a)
++        *a = tolower(*a);
++    if (*type == '.') {
++        std::map<std::string,std::string>::const_iterator aMapRow = mime_map.find(out_fields->mimetype);
++        if (aMapRow == mime_map.end())
++            return Status_TYPE;
++        out_fields->mimetype = aMapRow->second;
++    }
++    if (out_fields->mimetype == "ignore")
++        return Status_IGNORE;
++
++    try {
++        std::string file(filepath);
++        std::map<std::string, std::string>::const_iterator cmd_it = commands.find(out_fields->mimetype);
++        if (cmd_it != commands.end()) {
++            // Easy "run a command and read UTF-8 text from stdout" cases.
++            out_fields->command = cmd_it->second;
++            if (out_fields->command.empty())
++                return Status_FILTER;
++            out_fields->command += shell_protect(file);
++            out_fields->dump = stdout_to_string(out_fields->command);
++        } else if (out_fields->mimetype == "text/html") {
++            std::string text = file_to_string(file);
++            MyHtmlParser p;
++            if (ignore_exclusions) p.ignore_metarobots();
++            try {
++                // Default HTML character set is latin 1, though not specifying
++                // one is deprecated these days.
++                p.parse_html(text, "iso-8859-1", false);
++            } catch (const std::string & newcharset) {
++                p.reset();
++                if (ignore_exclusions) p.ignore_metarobots();
++                p.parse_html(text, newcharset, true);
++            }
++            if (!p.indexing_allowed)
++                return Status_METATAG;
++            out_fields->dump = p.dump;
++            out_fields->title = p.title;
++            out_fields->keywords = p.keywords;
++            out_fields->sample = p.sample;
++            out_fields->author = p.author;
++            md5_string(text, out_fields->md5);
++        } else if (out_fields->mimetype == "text/plain") {
++            // Currently we assume that text files are UTF-8 unless they have a
++            // byte-order mark.
++            out_fields->dump = file_to_string(file);
++            md5_string(out_fields->dump, out_fields->md5);
++            // Look for Byte-Order Mark (BOM).
++            if (startswith(out_fields->dump, "\xfe\xff") || startswith(out_fields->dump, "\xff\xfe")) {
++                // UTF-16 in big-endian/little-endian order - we just convert
++                // it as "UTF-16" and let the conversion handle the BOM as that
++                // way we avoid the copying overhead of erasing 2 bytes from
++                // the start of dump.
++                convert_to_utf8(out_fields->dump, "UTF-16");
++            } else if (startswith(out_fields->dump, "\xef\xbb\xbf")) {
++                // UTF-8 with stupid Windows not-the-byte-order mark.
++                out_fields->dump.erase(0, 3);
++            } else {
++                // FIXME: What charset is the file?  Look at contents?
++            }
++        } else if (out_fields->mimetype == "application/pdf") {
++            std::string safefile = shell_protect(file);
++            out_fields->command = "pdftotext -enc UTF-8 " + safefile + " -";
++            out_fields->dump = stdout_to_string(out_fields->command);
++            get_pdf_metainfo(safefile, out_fields->command, out_fields->author, out_fields->title, out_fields->keywords);
++        } else if (out_fields->mimetype == "application/postscript") {
++            // There simply doesn't seem to be a Unicode capable PostScript to
++            // text converter (e.g. pstotext always outputs ISO-8859-1).  The
++            // only solution seems to be to convert via PDF using ps2pdf and
++            // then pdftotext.  This gives plausible looking UTF-8 output for
++            // some Chinese PostScript files I found using Google.  It also has
++            // the benefit of allowing us to extract meta information from
++            // PostScript files.
++            std::string tmpfile = get_tmpdir();
++            if (tmpfile.empty()) // FIXME: should this be fatal?  Or disable indexing postscript?
++                return Status_TMPDIR;
++            tmpfile += "/tmp.pdf";
++            std::string safetmp = shell_protect(tmpfile);
++            out_fields->command = "ps2pdf " + shell_protect(file) + " " + safetmp;
++            try {
++                (void)stdout_to_string(out_fields->command);
++                out_fields->command = "pdftotext -enc UTF-8 " + safetmp + " -";
++                out_fields->dump = stdout_to_string(out_fields->command);
++                get_pdf_metainfo(safetmp, out_fields->command, out_fields->author, out_fields->title, out_fields->keywords);
++            } catch (...) {
++                unlink(tmpfile.c_str());
++                throw;
++            }
++            unlink(tmpfile.c_str());
++        } else if (startswith(out_fields->mimetype, "application/vnd.sun.xml.")
++                || startswith(out_fields->mimetype, "application/vnd.oasis.opendocument.")) {
++            // Inspired by http://mjr.towers.org.uk/comp/sxw2text
++            std::string safefile = shell_protect(file);
++            out_fields->command = "unzip -p " + safefile + " content.xml styles.xml";
++            XmlParser xmlparser;
++            xmlparser.parse_html(stdout_to_string(out_fields->command));
++            out_fields->dump = xmlparser.dump;
++            out_fields->command = "unzip -p " + safefile + " meta.xml";
++            try {
++                MetaXmlParser metaxmlparser;
++                metaxmlparser.parse_html(stdout_to_string(out_fields->command));
++                out_fields->title = metaxmlparser.title;
++                out_fields->keywords = metaxmlparser.keywords;
++                out_fields->sample = metaxmlparser.sample;
++                out_fields->author = metaxmlparser.author;
++            } catch (ReadError) {
++                // It's probably best to index the document even if this fails.
++            }
++        } else if (out_fields->mimetype == "application/vnd.ms-excel") {
++            out_fields->command = "xls2csv -c' ' -q0 -dutf-8 " + shell_protect(file);
++            out_fields->dump = stdout_to_string(out_fields->command);
++        } else if (startswith(out_fields->mimetype, "application/vnd.openxmlformats-officedocument.")) {
++            const char * args = NULL;
++            std::string tail(out_fields->mimetype, 46);
++            if (startswith(tail, "wordprocessingml.")) {
++                // unzip returns exit code 11 if a file to extract wasn't found
++                // which we want to ignore, because there may be no headers or
++                // no footers.
++                args = " word/document.xml word/header\\*.xml word/footer\\*.xml 2>/dev/null||test $? = 11";
++            } else if (startswith(tail, "spreadsheetml.")) {
++                args = " xl/sharedStrings.xml";
++            } else if (startswith(tail, "presentationml.")) {
++                // unzip returns exit code 11 if a file to extract wasn't found
++                // which we want to ignore, because there may be no notesSlides
++                // or comments.
++                args = " ppt/slides/slide\\*.xml ppt/notesSlides/notesSlide\\*.xml ppt/comments/comment\\*.xml 2>/dev/null||test $? = 11";
++            } else {
++                // Don't know how to index this type.
++                return Status_TYPE;
++            }
++            std::string safefile = shell_protect(file);
++            out_fields->command = "unzip -p " + safefile + args;
++            XmlParser xmlparser;
++            xmlparser.parse_html(stdout_to_string(out_fields->command));
++            out_fields->dump = xmlparser.dump;
++            out_fields->command = "unzip -p " + safefile + " docProps/core.xml";
++            try {
++                MetaXmlParser metaxmlparser;
++                metaxmlparser.parse_html(stdout_to_string(out_fields->command));
++                out_fields->title = metaxmlparser.title;
++                out_fields->keywords = metaxmlparser.keywords;
++                out_fields->sample = metaxmlparser.sample;
++                out_fields->author = metaxmlparser.author;
++            } catch (ReadError) {
++                // It's probably best to index the document even if this fails.
++            }
++        } else if (out_fields->mimetype == "application/x-abiword") {
++            // FIXME: Implement support for metadata.
++            XmlParser xmlparser;
++            std::string text = file_to_string(file);
++            xmlparser.parse_html(text);
++            out_fields->dump = xmlparser.dump;
++            md5_string(text, out_fields->md5);
++        } else if (out_fields->mimetype == "application/x-abiword-compressed") {
++            // FIXME: Implement support for metadata.
++            out_fields->command = "gzip -dc " + shell_protect(file);
++            XmlParser xmlparser;
++            xmlparser.parse_html(stdout_to_string(out_fields->command));
++            out_fields->dump = xmlparser.dump;
++        } else if (out_fields->mimetype == "text/rtf") {
++            // The --text option unhelpfully converts all non-ASCII characters
++            // to "?" so we use --html instead, which produces HTML entities.
++            out_fields->command = "unrtf --nopict --html 2>/dev/null " + shell_protect(file);
++            MyHtmlParser p;
++            p.ignore_metarobots();
++            // No point going looking for charset overrides as unrtf doesn't produce them.
++            p.parse_html(stdout_to_string(out_fields->command), "iso-8859-1", true);
++            out_fields->dump = p.dump;
++            out_fields->title = p.title;
++            out_fields->keywords = p.keywords;
++            out_fields->sample = p.sample;
++        } else if (out_fields->mimetype == "text/x-perl") {
++            // pod2text's output character set doesn't seem to be documented,
++            // but from inspecting the source it looks like it's probably iso-8859-1.
++            out_fields->command = "pod2text " + shell_protect(file);
++            out_fields->dump = stdout_to_string(out_fields->command);
++            convert_to_utf8(out_fields->dump, "ISO-8859-1");
++        } else if (out_fields->mimetype == "application/x-dvi") {
++            // FIXME: -e0 means "UTF-8", but that results in "fi", "ff", "ffi",
++            // etc appearing as single ligatures.  For European languages, it's
++            // actually better to use -e2 (ISO-8859-1) and then convert, so
++            // let's do that for now until we handle Unicode "compatibility decompositions".
++            out_fields->command = "catdvi -e2 -s " + shell_protect(file);
++            out_fields->dump = stdout_to_string(out_fields->command);
++            convert_to_utf8(out_fields->dump, "ISO-8859-1");
++        } else if (out_fields->mimetype == "application/vnd.ms-xpsdocument") {
++            std::string safefile = shell_protect(file);
++            out_fields->command = "unzip -p " + safefile + " Documents/1/Pages/\\*.fpage";
++            XpsXmlParser xpsparser;
++            out_fields->dump = stdout_to_string(out_fields->command);
++            // Look for Byte-Order Mark (BOM).
++            if (startswith(out_fields->dump, "\xfe\xff") || startswith(out_fields->dump, "\xff\xfe")) {
++                // UTF-16 in big-endian/little-endian order - we just
++                // convert it as "UTF-16" and let the conversion handle the
++                // BOM as that way we avoid the copying overhead of erasing
++                // 2 bytes from the start of dump.
++                convert_to_utf8(out_fields->dump, "UTF-16");
++            }
++            xpsparser.parse_html(out_fields->dump);
++            out_fields->dump = xpsparser.dump;
++        } else if (out_fields->mimetype == "text/csv") {
++            // Currently we assume that text files are UTF-8 unless they have a
++            // byte-order mark.
++            out_fields->dump = file_to_string(file);
++            md5_string(out_fields->dump, out_fields->md5);
++            // Look for Byte-Order Mark (BOM).
++            if (startswith(out_fields->dump, "\xfe\xff") || startswith(out_fields->dump, "\xff\xfe")) {
++                // UTF-16 in big-endian/little-endian order - we just convert
++                // it as "UTF-16" and let the conversion handle the BOM as that
++                // way we avoid the copying overhead of erasing 2 bytes from
++                // the start of dump.
++                convert_to_utf8(out_fields->dump, "UTF-16");
++            } else if (startswith(out_fields->dump, "\xef\xbb\xbf")) {
++                // UTF-8 with stupid Windows not-the-byte-order mark.
++                out_fields->dump.erase(0, 3);
++            } else {
++                // FIXME: What charset is the file?  Look at contents?
++            }
++            generate_sample_from_csv(out_fields->dump, out_fields->sample);
++        } else if (out_fields->mimetype == "application/vnd.ms-outlook") {
++            out_fields->command = get_pkglibbindir() + "/outlookmsg2html " + shell_protect(file);
++            MyHtmlParser p;
++            p.ignore_metarobots();
++            out_fields->dump = stdout_to_string(out_fields->command);
++            try {
++                // FIXME: what should the default charset be?
++                p.parse_html(out_fields->dump, "iso-8859-1", false);
++            } catch (const std::string & newcharset) {
++                p.reset();
++                p.ignore_metarobots();
++                p.parse_html(out_fields->dump, newcharset, true);
++            }
++            out_fields->dump = p.dump;
++            out_fields->title = p.title;
++            out_fields->keywords = p.keywords;
++            out_fields->sample = p.sample;
++            out_fields->author = p.author;
++        } else if (out_fields->mimetype == "image/svg+xml") {
++            SvgParser svgparser;
++            svgparser.parse_html(file_to_string(file));
++            out_fields->dump = svgparser.dump;
++            out_fields->title = svgparser.title;
++            out_fields->keywords = svgparser.keywords;
++            out_fields->author = svgparser.author;
++        } else if (out_fields->mimetype == "application/x-debian-package") {
++            out_fields->command = "dpkg-deb -f ";
++            out_fields->command += shell_protect(file);
++            out_fields->command += " Description";
++            const std::string & desc = stdout_to_string(out_fields->command);
++            // First line is short description, which we use as the title.
++            std::string::size_type idx = desc.find('\n');
++            out_fields->title.assign(desc, 0, idx);
++            if (idx != std::string::npos) {
++                out_fields->dump.assign(desc, idx + 1, std::string::npos);
++            }
++        } else if (out_fields->mimetype == "application/x-redhat-package-manager") {
++            out_fields->command = "rpm -q --qf '%{SUMMARY}\\n%{DESCRIPTION}' -p ";
++            out_fields->command += shell_protect(file);
++            const std::string & desc = stdout_to_string(out_fields->command);
++            // First line is summary, which we use as the title.
++            std::string::size_type idx = desc.find('\n');
++            out_fields->title.assign(desc, 0, idx);
++            if (idx != std::string::npos) {
++                out_fields->dump.assign(desc, idx + 1, std::string::npos);
++            }
++        } else {
++            // Don't know how to index this type.
++            return Status_TYPE;
++        }
++
++        // Compute the MD5 of the file if we haven't already.
++        if (out_fields->md5.empty() && md5_file(file, out_fields->md5, true) == 0)
++            return Status_MD5;
++
++    } catch (ReadError) {
++        return Status_COMMAND;
++    } catch (NoSuchFilter) {
++        // this would make the object non-thread-safe; let the caller do this
++        // commands[out_fields->mimetype] = "";
++        return Status_FILTER;
++    } catch (const std::string& err) {
++        out_fields->command = err;
++        return Status_FILENAME;
++    }
++    return Status_OK;
++}
++
++std::string Mime2Text::file_to_string(const std::string& file)
++  // I suspect the overhead incurred when O_NOATIME causes a 2nd open() syscall is <50us
++  // and therefore not noticeable, given all the disk I/O an indexing pass does. -Liam
++{
++    std::string output;
++    if (!load_file(file, output, NOCACHE | NOATIME))
++      throw ReadError();
++    return output;
++}
++
++std::string Mime2Text::shell_protect(const std::string& file)
++{
++    std::string safefile = file;
++#ifdef __WIN32__
++    bool need_to_quote = false;
++    for (std::string::iterator i = safefile.begin(); i != safefile.end(); ++i) {
++        unsigned char ch = *i;
++        if (!isalnum(ch) && ch < 128) {
++            if (ch == '/') {
++                // Convert Unix path separators to backslashes.  C library
++                // functions understand "/" in paths, but external commands
++                // generally don't, and also may interpret a leading '/' as
++                // introducing a command line option.
++                *i = '\\';
++            } else if (ch == ' ') {
++                need_to_quote = true;
++            } else if (ch < 32 || strchr("<>\"|*?", ch)) {
++                // Check for invalid characters in the filename.
++                std::string m("Invalid character '");
++                m += ch;
++                m += "' in filename \"";
++                m += file;
++                m += '"';
++                throw m;
++            }
++        }
++    }
++    if (safefile[0] == '-') {
++        // If the filename starts with a '-', protect it from being treated as
++        // an option by prepending ".\".
++        safefile.insert(0, ".\\");
++    }
++    if (need_to_quote) {
++        safefile.insert(0, "\"");
++        safefile += '"';
++    }
++#else
++    std::string::size_type p = 0;
++    if (!safefile.empty() && safefile[0] == '-') {
++        // If the filename starts with a '-', protect it from being treated as
++        // an option by prepending "./".
++        safefile.insert(0, "./");
++        p = 2;
++    }
++    while (p < safefile.size()) {
++        // Don't escape some safe characters which are common in filenames.
++        unsigned char ch = safefile[p];
++        if (!isalnum(ch) && strchr("/._-", ch) == NULL) {
++            safefile.insert(p, "\\");
++            ++p;
++        }
++        ++p;
++    }
++#endif
++    return safefile;
++}
++
++void Mime2Text::parse_pdfinfo_field(const char * p, const char * end, std::string & out, const char * field, size_t len)
++{
++    if (size_t(end - p) > len && memcmp(p, field, len) == 0) {
++        p += len;
++        while (p != end && *p == ' ')
++            ++p;
++        if (p != end && (end[-1] != '\r' || --end != p))
++            out.assign(p, end - p);
++    }
++}
++
++#define PARSE_PDFINFO_FIELD(P, END, OUT, FIELD) \
++    parse_pdfinfo_field((P), (END), (OUT), FIELD":", CONST_STRLEN(FIELD) + 1)
++
++void Mime2Text::get_pdf_metainfo(const std::string& safefile, std::string& command, std::string& author, std::string& title, std::string& keywords)
++{
++    command = "pdfinfo -enc UTF-8 " + safefile;
++    try {
++        std::string pdfinfo = stdout_to_string(command);
++
++        const char * p = pdfinfo.data();
++        const char * end = p + pdfinfo.size();
++        while (p != end) {
++            const char * start = p;
++            p = static_cast<const char *>(memchr(p, '\n', end - p));
++            const char * eol;
++            if (p) {
++                eol = p;
++                ++p;
++            } else {
++                p = eol = end;
++            }
++            switch (*start) {
++                case 'A': PARSE_PDFINFO_FIELD(start, eol, author,   "Author");   break;
++                case 'K': PARSE_PDFINFO_FIELD(start, eol, keywords, "Keywords"); break;
++                case 'T': PARSE_PDFINFO_FIELD(start, eol, title,    "Title");    break;
++            }
++        }
++    } catch (ReadError) {
++        // It's probably best to index the document even if pdfinfo fails.
++    }
++}
++
++void Mime2Text::generate_sample_from_csv(const std::string & csv_data, std::string & sample)
++{
++    // Add 3 to allow for a 4 byte utf-8 sequence being appended when
++    // output is SAMPLE_SIZE - 1 bytes long.
++    sample.reserve(sample_size + 3);
++    size_t last_word_end = 0;
++    bool in_space = true;
++    bool in_quotes = false;
++    Xapian::Utf8Iterator i(csv_data);
++    for ( ; i != Xapian::Utf8Iterator(); ++i) {
++        unsigned ch = *i;
++
++        if (!in_quotes) {
++            // If not already in double quotes, '"' starts quoting and
++            // ',' starts a new field.
++            if (ch == '"') {
++                in_quotes = true;
++                continue;
++            }
++            if (ch == ',')
++                ch = ' ';
++        } else if (ch == '"') {
++            // In double quotes, '"' either ends double quotes, or
++            // if followed by another '"', means a literal '"'.
++            if (++i == Xapian::Utf8Iterator())
++                break;
++            ch = *i;
++            if (ch != '"') {
++                in_quotes = false;
++                if (ch == ',')
++                    ch = ' ';
++            }
++        }
++
++        if (ch <= ' ' || ch == 0xa0) {
++            // FIXME: if all the whitespace characters between two
++            // words are 0xa0 (non-breaking space) then perhaps we
++            // should output 0xa0.
++            if (in_space)
++                continue;
++            last_word_end = sample.size();
++            sample += ' ';
++            in_space = true;
++        } else {
++            Xapian::Unicode::append_utf8(sample, ch);
++            in_space = false;
++        }
++
++        if (sample.size() >= sample_size) {
++            // Need to truncate sample.
++            if (last_word_end <= sample_size / 2) {
++                // Monster word!  We'll have to just split it.
++                sample.replace(sample_size - 3, std::string::npos, "...", 3);
++            } else {
++                sample.replace(last_word_end, std::string::npos, " ...", 4);
++            }
++            break;
++        }
++    }
++}
++
++
+diff -urN xapian-omega-1.2.13.orig/mime2text.h xapian-omega-1.2.13/mime2text.h
+--- xapian-omega-1.2.13.orig/mime2text.h	1969-12-31 17:00:00.000000000 -0700
++++ xapian-omega-1.2.13/mime2text.h	2013-02-15 23:26:37.311755908 -0700
+@@ -0,0 +1,151 @@
++/* mime2text.h: convert common-format files to text for indexing
++ *
++ * Copyright 1999,2000,2001 BrightStation PLC
++ * Copyright 2001,2005 James Aylett
++ * Copyright 2001,2002 Ananova Ltd
++ * Copyright 2002,2003,2004,2005,2006,2007,2008,2009,2010,2011 Olly Betts
++ * Copyright 2009 Frank J Bruzzaniti
++ * Copyright 2011 Liam Breck
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301
++ * USA
++ */
++
++#ifndef OMEGA_INCLUDED_MIME2TEXT_H
++#define OMEGA_INCLUDED_MIME2TEXT_H
++
++#include <string>
++#include <map>
++
++namespace Xapian {
++
++/** Extracts text from common-format files for indexing
++ *  
++ *  TODO support stream input
++ */
++class Mime2Text {
++public:
++    /** Constructor
++     *  
++     *  @param noexcl    Ignore_exclusions flag (default: false)
++     *  @param sampsize  Max size of sample output (default: 512)
++     */
++    explicit Mime2Text(bool noexcl=false, int sampsize=512);
++
++    /** Set the command to execute for a mimetype
++     *  
++     *  @param key    Mime-type
++     *  @param value  External command to execute
++     */
++    void set_command(const char* key, const char* value) { commands[key] = value; }
++    // FIXME should tolower() inputs
++
++    /** Set the mimetype for a filename extension
++     *  
++     *  @param key    Extension
++     *  @param value  Mime-type to associate with extension
++     */
++    void set_mimetype(const char* key, const char* value) { mime_map[key] = value; }
++    // FIXME should tolower() inputs
++
++    /// return values for convert()
++    enum Status {
++        /// conversion succeeded
++        Status_OK,
++
++        /// extension or mimetype not known
++        Status_TYPE,
++
++        /// type is not convertible
++        Status_IGNORE,
++
++        /// content is protected by a meta tag
++        Status_METATAG,
++
++        /// filename is invalid
++        Status_FILENAME,
++
++        /// external filter invoked by command was not found
++        Status_FILTER,
++
++        /// command failed
++        Status_COMMAND,
++
++        /// md5 checksum generation failed
++        Status_MD5,
++
++        /// accessing a temporary directory failed
++        Status_TMPDIR
++    };
++
++    /// Conversion output
++    class Fields {
++    public:
++        /// Title text, if any
++        std::string& get_title()    { return title; }
++
++        /// Author text, if any
++        std::string& get_author()   { return author; }
++
++        /// Keywords, if any
++        std::string& get_keywords() { return keywords; }
++
++        /// Sample of document, if derivable
++        std::string& get_sample()   { return sample; }
++
++        /// Body text, if any
++        std::string& get_body()     { return dump; }
++
++        /// md5 checksum
++        std::string& get_md5()      { return md5; }
++
++        /// Mime-type used in conversion
++        std::string& get_mimetype() { return mimetype; }
++
++        /// Command used in conversion, if any
++        std::string& get_command()  { return command; }
++
++    private:
++        friend class Mime2Text;
++        std::string author, title, sample, keywords, dump;
++        std::string md5;
++        std::string mimetype, command;
++    };
++
++    /** Extract Fields from a file
++     *  
++     *  @param filepath    file to open
++     *  @param type        mimetype; if NULL check file ext; if starts with . find in mime_map
++     *  @param out_fields  pointer to a Fields object
++     */
++    Status convert(const char* filepath, const char* type, Fields* out_fields);
++
++private:
++    std::string shell_protect(const std::string& file);
++    std::string file_to_string(const std::string& file);
++    void get_pdf_metainfo(const std::string& safefile, std::string& command, std::string& author, std::string& title, std::string& keywords);
++    void parse_pdfinfo_field(const char* p, const char* end, std::string& out, const char* field, size_t len);
++    void generate_sample_from_csv(const std::string& csv_data, std::string& sample);
++
++    bool ignore_exclusions;
++    int sample_size;
++    std::map<std::string, std::string> mime_map;
++    std::map<std::string, std::string> commands;
++};
++
++}
++
++#endif // OMEGA_INCLUDED_MIME2TEXT_H
++
+diff -urN xapian-omega-1.2.13.orig/mime2text-test.cc xapian-omega-1.2.13/mime2text-test.cc
+--- xapian-omega-1.2.13.orig/mime2text-test.cc	1969-12-31 17:00:00.000000000 -0700
++++ xapian-omega-1.2.13/mime2text-test.cc	2013-02-15 23:26:37.311755908 -0700
+@@ -0,0 +1,86 @@
++/* mime2text-test.cc: exercise Mime2Text converter
++ *
++ * Copyright 2011 Liam Breck
++ *
++ * This program is free software; you can redistribute it and/or
++ * modify it under the terms of the GNU General Public License as
++ * published by the Free Software Foundation; either version 2 of the
++ * License, or (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301
++ * USA
++ */
++
++/* Building
++ *
++ * ar rcs libmime2text.a \
++ *   htmlparse.o  md5.o      metaxmlparse.o  pkglibbindir.o  svgparse.o   utf8convert.o  xpsxmlparse.o \
++ *   loadfile.o   md5wrap.o  mime2text.o     myhtmlparse.o   runfilter.o  tmpdir.o       xmlparse.o
++ * g++ -o mime2text-test mime2text-test.cc diritor.cc libmime2text.a -lxapian \
++ *   -I. -I../../xapian-core -I../../xapian-core/common
++ *
++ * External Dependencies (filters)
++ * FIXME add these
++ */
++
++#include <iostream>
++#include <string>
++
++#include <config.h>
++
++#include "mime2text.h"
++#include "diritor.h"
++
++using Xapian::Mime2Text;
++
++static Mime2Text converter;
++
++static void read_dir(std::string& path) {
++    path += '/';
++    DirectoryIterator d(false);
++    try {
++        d.start(path);
++        while (d.next()) {
++            std::string file = path+d.leafname();
++            switch (d.get_type()) {
++            case DirectoryIterator::REGULAR_FILE: {
++                Mime2Text::Fields aFields;
++                Mime2Text::Status aStat = converter.convert(file.c_str(), NULL, &aFields);
++
++                std::cout << aStat
++                << ", author: "   << aFields.get_author()
++                << ", title: "    << aFields.get_title()
++                << ", sample: "   << aFields.get_sample()
++                << ", keywords: " << aFields.get_keywords()
++                << ", dump: "     << aFields.get_body()
++                //<< ", md5: "      << aFields.get_md5()
++                << ", mimetype: " << aFields.get_mimetype()
++                << ", command: "  << aFields.get_command()
++                << std::endl;
++            }
++            break;
++            case DirectoryIterator::DIRECTORY:
++                read_dir(file);
++            }
++        }
++    } catch (const std::string& err) {
++        std::cerr << err << std::endl;
++    }
++}
++
++int main(int argc, char **argv) {
++    if (argc != 2) {
++      std::cerr << "specify directory to read" << std::endl;
++      return 1;
++    }
++    std::string dir(argv[1]);
++    read_dir(dir);
++    return 0;
++}
+diff -urN xapian-omega-1.2.13.orig/myhtmlparse.h xapian-omega-1.2.13/myhtmlparse.h
+--- xapian-omega-1.2.13.orig/myhtmlparse.h	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/myhtmlparse.h	2013-02-15 23:26:37.311755908 -0700
+@@ -37,13 +37,13 @@
+ 	bool indexing_allowed;
+ 	bool ignoring_metarobots;
+ 	bool charset_from_meta;
+-	string title, sample, keywords, dump, author;
+-	string * target;
++	std::string title, sample, keywords, dump, author;
++	std::string * target;
+ 
+-	void process_text(const string &text);
+-	bool opening_tag(const string &tag);
+-	bool closing_tag(const string &tag);
+-	void parse_html(const string &text, const string &charset_,
++	void process_text(const std::string &text);
++	bool opening_tag(const std::string &tag);
++	bool closing_tag(const std::string &tag);
++	void parse_html(const std::string &text, const std::string &charset_,
+ 			bool charset_from_meta_);
+ 	void ignore_metarobots() { ignoring_metarobots = true; }
+ 	MyHtmlParser() :
+diff -urN xapian-omega-1.2.13.orig/svgparse.h xapian-omega-1.2.13/svgparse.h
+--- xapian-omega-1.2.13.orig/svgparse.h	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/svgparse.h	2013-02-15 23:26:37.311755908 -0700
+@@ -25,13 +25,13 @@
+ 
+ class SvgParser : public HtmlParser {
+     enum { OTHER, TEXT, METADATA, TITLE, KEYWORDS, AUTHOR } state;
+-    string dc_tag;
++    std::string dc_tag;
+   public:
+     SvgParser() : state(OTHER) { }
+-    void process_text(const string &text);
+-    bool opening_tag(const string &tag);
+-    bool closing_tag(const string &tag);
+-    string title, keywords, dump, author;
++    void process_text(const std::string &text);
++    bool opening_tag(const std::string &tag);
++    bool closing_tag(const std::string &tag);
++    std::string title, keywords, dump, author;
+ };
+ 
+ #endif // OMEGA_INCLUDED_SVGPARSE_H
+diff -urN xapian-omega-1.2.13.orig/tmpdir.cc xapian-omega-1.2.13/tmpdir.cc
+--- xapian-omega-1.2.13.orig/tmpdir.cc	1969-12-31 17:00:00.000000000 -0700
++++ xapian-omega-1.2.13/tmpdir.cc	2013-02-15 23:40:34.002914819 -0700
+@@ -0,0 +1,64 @@
++/** @file tmpdir.cc
++ * @brief create a temporary directory securely
++ *
++ * Copyright (C) 2007,2011 Olly Betts
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
++ */
++
++#include <config.h>
++
++#include "tmpdir.h"
++
++#include "safesysstat.h"
++#include <sys/types.h>
++#include <stdlib.h> // Not cstdlib as we want mkdtemp.
++#include <cstring>
++#include <string>
++#include <unistd.h>
++
++#ifndef HAVE_MKDTEMP
++extern char * mkdtemp(char *);
++#endif
++
++using namespace std;
++
++static string tmpdir;
++
++const string &
++get_tmpdir()
++{
++    if (tmpdir.empty()) {
++	const char * p = getenv("TMPDIR");
++	if (!p) p = "/tmp";
++	char * dir_template = new char[strlen(p) + 15 + 1];
++	strcpy(dir_template, p);
++	strcat(dir_template, "/omindex-XXXXXX");
++	p = mkdtemp(dir_template);
++	if (p) {
++	    tmpdir.assign(dir_template);
++	    tmpdir += '/';
++	}
++	delete [] dir_template;
++    }
++    return tmpdir;
++}
++
++void
++remove_tmpdir()
++{
++    if (!tmpdir.empty())
++	rmdir(tmpdir.c_str());
++}
+diff -urN xapian-omega-1.2.13.orig/tmpdir.h xapian-omega-1.2.13/tmpdir.h
+--- xapian-omega-1.2.13.orig/tmpdir.h	1969-12-31 17:00:00.000000000 -0700
++++ xapian-omega-1.2.13/tmpdir.h	2013-02-15 23:26:37.311755908 -0700
+@@ -0,0 +1,42 @@
++/** @file tmpdir.h
++ * @brief create a temporary directory securely
++ *
++ * Copyright (C) 2011 Olly Betts
++ *
++ * This program is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 2 of the License, or
++ * (at your option) any later version.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, write to the Free Software
++ * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301 USA
++ */
++
++#ifndef XAPIAN_OMEGA_INCLUDED_TMPDIR_H
++#define XAPIAN_OMEGA_INCLUDED_TMPDIR_H
++
++#include <string>
++
++/** Return path to temporary directory.
++ *
++ *  If successfully called before, this just returns the same path.
++ *
++ *  @return If successful, path to directory; otherwise empty string.
++ */
++const std::string & get_tmpdir();
++
++/** Attempt to remove the directory if we created one.
++ *
++ *  If get_tmpdir() hasn't been called or hasn't succeeded, does nothing.
++ *  If the directory isn't empty or rmdir() otherwise fails, the directory
++ *  won't get removed.
++ */
++void remove_tmpdir();
++
++#endif // XAPIAN_OMEGA_INCLUDED_TMPDIR_H
+diff -urN xapian-omega-1.2.13.orig/xmlparse.cc xapian-omega-1.2.13/xmlparse.cc
+--- xapian-omega-1.2.13.orig/xmlparse.cc	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/xmlparse.cc	2013-02-15 23:26:37.315755923 -0700
+@@ -21,6 +21,8 @@
+ 
+ #include "xmlparse.h"
+ 
++using namespace std;
++
+ bool
+ XmlParser::opening_tag(const string &)
+ {
+diff -urN xapian-omega-1.2.13.orig/xmlparse.h xapian-omega-1.2.13/xmlparse.h
+--- xapian-omega-1.2.13.orig/xmlparse.h	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/xmlparse.h	2013-02-15 23:26:37.315755923 -0700
+@@ -25,9 +25,9 @@
+ class XmlParser : public MyHtmlParser {
+   public:
+     XmlParser() : MyHtmlParser() { }
+-    bool opening_tag(const string &tag);
+-    bool closing_tag(const string &tag);
+-    void parse_html(const string &text) {
++    bool opening_tag(const std::string &tag);
++    bool closing_tag(const std::string &tag);
++    void parse_html(const std::string &text) {
+ 	// Ignore overriding charsets in meta tags.
+ 	MyHtmlParser::parse_html(text, "utf-8", true);
+     }
+diff -urN xapian-omega-1.2.13.orig/xpsxmlparse.cc xapian-omega-1.2.13/xpsxmlparse.cc
+--- xapian-omega-1.2.13.orig/xpsxmlparse.cc	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/xpsxmlparse.cc	2013-02-15 23:26:37.315755923 -0700
+@@ -22,6 +22,8 @@
+ 
+ #include "xpsxmlparse.h"
+ 
++using namespace std;
++
+ bool
+ XpsXmlParser::opening_tag(const string &tag)
+ {
+diff -urN xapian-omega-1.2.13.orig/xpsxmlparse.h xapian-omega-1.2.13/xpsxmlparse.h
+--- xapian-omega-1.2.13.orig/xpsxmlparse.h	2013-01-09 05:08:00.000000000 -0700
++++ xapian-omega-1.2.13/xpsxmlparse.h	2013-02-15 23:26:37.315755923 -0700
+@@ -26,8 +26,8 @@
+ class XpsXmlParser : public HtmlParser {
+   public:
+     XpsXmlParser() { }
+-    bool opening_tag(const string &tag);
+-    string dump;
++    bool opening_tag(const std::string &tag);
++    std::string dump;
+ };
+ 
+ #endif // OMEGA_INCLUDED_XPSXMLPARSE_H

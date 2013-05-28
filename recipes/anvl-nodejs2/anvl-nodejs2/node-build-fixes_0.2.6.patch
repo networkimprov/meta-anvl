@@ -1,0 +1,46 @@
+diff -ur node-v0.2.6.orig/deps/v8/src/objects-visiting.h node-v0.2.6/deps/v8/src/objects-visiting.h
+--- node-v0.2.6.orig/deps/v8/src/objects-visiting.h	2010-12-30 22:00:01.000000000 -0700
++++ node-v0.2.6/deps/v8/src/objects-visiting.h	2013-02-14 23:09:16.232914381 -0700
+@@ -198,13 +198,13 @@
+  public:
+   static inline ReturnType Visit(Map* map, HeapObject* object) {
+     int object_size = BodyDescriptor::SizeOf(map, object);
+-    IteratePointers(object, BodyDescriptor::kStartOffset, object_size);
++    FlexibleBodyVisitor::IteratePointers(object, BodyDescriptor::kStartOffset, object_size);
+     return static_cast<ReturnType>(object_size);
+   }
+ 
+   template<int object_size>
+   static inline ReturnType VisitSpecialized(Map* map, HeapObject* object) {
+-    IteratePointers(object, BodyDescriptor::kStartOffset, object_size);
++    FlexibleBodyVisitor::IteratePointers(object, BodyDescriptor::kStartOffset, object_size);
+     return static_cast<ReturnType>(object_size);
+   }
+ };
+@@ -214,7 +214,7 @@
+ class FixedBodyVisitor : public BodyVisitorBase<StaticVisitor> {
+  public:
+   static inline ReturnType Visit(Map* map, HeapObject* object) {
+-    IteratePointers(object,
++    FixedBodyVisitor::IteratePointers(object,
+                     BodyDescriptor::kStartOffset,
+                     BodyDescriptor::kEndOffset);
+     return static_cast<ReturnType>(BodyDescriptor::kSize);
+diff -ur node-v0.2.6.orig/src/node_crypto.cc node-v0.2.6/src/node_crypto.cc
+--- node-v0.2.6.orig/src/node_crypto.cc	2010-12-30 22:00:01.000000000 -0700
++++ node-v0.2.6/src/node_crypto.cc	2013-02-15 00:06:20.503921742 -0700
+@@ -74,12 +74,14 @@
+           String::New("Bad parameter")));
+ 
+     String::Utf8Value sslmethod(args[0]->ToString());
++#if 0
+     if (strcmp(*sslmethod, "SSLv2_method") == 0)
+       method = SSLv2_method();
+     if (strcmp(*sslmethod, "SSLv2_server_method") == 0)
+       method = SSLv2_server_method();
+     if (strcmp(*sslmethod, "SSLv2_client_method") == 0)
+       method = SSLv2_client_method();
++#endif
+     if (strcmp(*sslmethod, "SSLv3_method") == 0)
+       method = SSLv3_method();
+     if (strcmp(*sslmethod, "SSLv3_server_method") == 0)

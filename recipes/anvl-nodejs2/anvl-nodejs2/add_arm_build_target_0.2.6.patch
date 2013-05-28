@@ -1,0 +1,12 @@
+diff -u node-v0.2.6.orig/wscript node-v0.2.6/wscript
+--- node-v0.2.6.orig/wscript	2010-12-30 22:00:01.000000000 -0700
++++ node-v0.2.6/wscript	2013-02-13 21:04:58.968137037 -0700
+@@ -338,6 +338,8 @@
+   arch = ""
+   if bld.env['DEST_CPU'] == 'x86_64':
+     arch = "arch=x64"
++  if bld.env['DEST_CPU'] == 'arm':
++    arch = "arch=arm"
+ 
+   if variant == "default":
+     mode = "release"

@@ -1,0 +1,11 @@
+--- node-xapian.orig/wscript	2013-02-14 21:04:55.629924680 -0700
++++ node-xapian/wscript	2013-02-15 23:34:50.877575702 -0700
+@@ -20,7 +20,7 @@
+ #   conf.env.append_value('LIB_PROFILER', 'profiler')
+ 
+ def build(bld):
+-  bld.env.append_value('LINKFLAGS', ['-l:../libmime2text.a'])
++  bld.env.append_value('LINKFLAGS', ['-l:libmime2text.a'])
+   obj = bld.new_task_gen("cxx", "shlib", "node_addon")
+   obj.cxxflags = ["-g", "-D_FILE_OFFSET_BITS=64", "-D_LARGEFILE_SOURCE", "-Wall"]
+   obj.target = "xapian-binding"

@@ -1,0 +1,13 @@
+diff -ur node-v0.8.19.orig/deps/v8/src/platform-linux.cc node-v0.8.19/deps/v8/src/platform-linux.cc
+--- node-v0.8.19.orig/deps/v8/src/platform-linux.cc	2013-02-06 09:46:14.000000000 -0700
++++ node-v0.8.19/deps/v8/src/platform-linux.cc	2013-03-17 12:09:58.235968687 -0600
+@@ -204,7 +204,7 @@
+   // Cast helper function from returning void to returning double.
+   typedef double (*F)();
+   F f = FUNCTION_CAST<F>(FUNCTION_ADDR(ArmUsingHardFloatHelper));
+-  return f() == 1.0;
++  return false;
+ }
+ #endif  // def __arm__
+ 
+Only in node-v0.8.19/deps/v8/src: platform-linux.cc~
