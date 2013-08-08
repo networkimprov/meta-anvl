@@ -45,9 +45,10 @@ IMAGE_INSTALL += "packagegroup-base-extended \
 		  uuidjs \
 		  bash \
 		  perl \
-	    binutils \
-	    gcc \ 
-	    make \
+		  binutils \
+		  gcc \
+		  make \
+		  linux-firmware-sd8787 \
 	    "
 
 
