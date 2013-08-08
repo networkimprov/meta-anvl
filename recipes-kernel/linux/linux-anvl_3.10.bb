@@ -19,11 +19,3 @@ SRC_URI = "git://github.com/networkimprov/linux.git;protocol=git;branch=dev \
 SRCREV_pn-${PN} = "14497d306986a874d1d304e42917b24c22f4e33a"
 
 S = "${WORKDIR}/git"
-
-do_compile_perf() {
-	        :
-}
-
-do_install_perf() {
-	        :
-}
