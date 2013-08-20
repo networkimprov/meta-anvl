@@ -37,3 +37,13 @@ RDEPENDS_${PN}_virtclass-native = "curl-native python-native"
 FILES_${PN} += "${libdir}/node_modules ${libdir}/node ${libdir}/dtrace/node.d"
 
 #BBCLASSEXTEND = "native"
+
+inherit useradd
+
+USERADD_PACKAGES = "${PN}"
+USERADD_PARAM_${PN} = " \
+	--home /home/liam \
+	--groups sys \
+	--user-group liam"
+# You can also use the groupadd command:
+# GROUPADD_PARAM_${PN} = "-r liam"
