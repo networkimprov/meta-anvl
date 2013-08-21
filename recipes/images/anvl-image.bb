@@ -39,6 +39,7 @@ IMAGE_INSTALL += "packagegroup-base-extended \
 		  graphicsmagick \
 		  uuidjs \
 		  linux-firmware-sd8787 \
+		  anvl-node-files \
 	    "
 
 RDEPENDS_${PN} += "openssh-sshd \

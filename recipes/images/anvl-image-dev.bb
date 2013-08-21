@@ -49,6 +49,7 @@ IMAGE_INSTALL += "packagegroup-base-extended \
 		  gcc \
 		  make \
 		  linux-firmware-sd8787 \
+		  anvl-node-files \
 	    "
 
 
