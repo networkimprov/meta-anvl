@@ -19,6 +19,7 @@ DEPENDS += "packagegroup-base-extended \
 	    anvl-node-xapian \
 	    graphicsmagick \
 	    uuidjs \
+	    samba4 \
 	   "
 
 IMAGE_INSTALL += "packagegroup-base-extended \
@@ -39,6 +40,7 @@ IMAGE_INSTALL += "packagegroup-base-extended \
 		  graphicsmagick \
 		  uuidjs \
 		  linux-firmware-sd8787 \
+	    	  samba4 \
 	    "
 
 RDEPENDS_${PN} += "openssh-sshd \

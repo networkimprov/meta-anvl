@@ -19,6 +19,7 @@ DEPENDS += "packagegroup-base-extended \
 	    anvl-node-xapian \
 	    graphicsmagick \
 	    uuidjs \
+	    samba4 \
 	    bash \
 	    perl \
 	    binutils \
@@ -43,6 +44,7 @@ IMAGE_INSTALL += "packagegroup-base-extended \
 	    	  anvl-node-xapian \
 		  graphicsmagick \
 		  uuidjs \
+	    	  samba4 \
 		  bash \
 		  perl \
 		  binutils \

@@ -1,0 +1,20 @@
+--- a/buildtools/wafadmin/Tools/gcc.py	2013-02-05 02:11:28.469269672 -0700
++++ b/buildtools/wafadmin/Tools/gcc.py	2013-02-05 02:12:27.021399948 -0700
+@@ -29,7 +29,7 @@
+ 
+ 	v['CC_SRC_F']            = ''
+ 	v['CC_TGT_F']            = ['-c', '-o', ''] # shell hack for -MD
+-	v['CPPPATH_ST']          = '-I%s' # template for adding include paths
++	if not v['CPPPATH_ST']: v['CPPPATH_ST']          = '-I%s' # template for adding include paths
+ 
+ 	# linker
+ 	if not v['LINK_CC']: v['LINK_CC'] = v['CC']
+@@ -37,7 +37,7 @@
+ 	v['CCLNK_TGT_F']         = ['-o', ''] # shell hack for -MD
+ 
+ 	v['LIB_ST']              = '-l%s' # template for adding libs
+-	v['LIBPATH_ST']          = '-L%s' # template for adding libpaths
++	if not v['LIBPATH_ST']: v['LIBPATH_ST']          = '-L%s' # template for adding libpaths
+ 	v['STATICLIB_ST']        = '-l%s'
+ 	v['STATICLIBPATH_ST']    = '-L%s'
+ 	v['RPATH_ST']            = '-Wl,-rpath,%s'

@@ -1,0 +1,23 @@
+diff -ur samba-4.0.2-orig/lib/ccan/wscript samba-4.0.2/lib/ccan/wscript
+--- samba-4.0.2-orig/lib/ccan/wscript	2012-11-13 01:03:38.000000000 -0700
++++ samba-4.0.2/lib/ccan/wscript	2013-04-07 22:05:25.865683109 -0600
+@@ -127,9 +127,11 @@
+     # Only check for FILE_OFFSET_BITS=64 if off_t is normally small:
+     # use raw routines because wrappers include previous _GNU_SOURCE
+     # or _FILE_OFFSET_BITS defines.
++    exec_args = conf.SAMBA_CROSS_ARGS()
+     conf.check(fragment="""#include <sys/types.h>
+                int main(void) { return !(sizeof(off_t) < 8); }""",
+                execute=True, msg='Checking for small off_t',
++               exec_args=exec_args,
+                define_name='SMALL_OFF_T')
+     # Unreliable return value above, hence use define.
+     if conf.CONFIG_SET('SMALL_OFF_T'):
+@@ -137,6 +139,7 @@
+                    int main(void) { return !(sizeof(off_t) >= 8); }""",
+                    execute=True, msg='Checking for -D_FILE_OFFSET_BITS=64',
+                    ccflags='-D_FILE_OFFSET_BITS=64',
++                   exec_args=exec_args,
+                    define_name='HAVE_FILE_OFFSET_BITS')
+ 
+ def ccan_module(bld, name, deps=''):

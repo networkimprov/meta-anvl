@@ -1,0 +1,11 @@
+diff -ur samba-4.0.2-orig/buildtools/wafadmin/Tools/python.py samba-4.0.2/buildtools/wafadmin/Tools/python.py
+--- samba-4.0.2-orig/buildtools/wafadmin/Tools/python.py	2012-10-02 02:24:39.000000000 -0600
++++ samba-4.0.2/buildtools/wafadmin/Tools/python.py	2013-04-07 21:01:01.557491099 -0600
+@@ -264,6 +264,7 @@
+ 			if (incstr.startswith('-I')
+ 			    or incstr.startswith('/I')):
+ 				incstr = incstr[2:]
++			incstr = conf.env.SYSROOTDIR + incstr
+ 			# append include path, unless already given
+ 			if incstr not in includes:
+ 				includes.append(incstr)

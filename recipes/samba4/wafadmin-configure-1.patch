@@ -1,0 +1,12 @@
+--- samba-4.0.2-orig/buildtools/wafadmin/Configure.py.orig	2013-08-26 04:44:29.352077689 -0600
++++ samba-4.0.2/buildtools/wafadmin/Configure.py	2013-08-26 04:46:39.090056151 -0600
+@@ -81,7 +81,8 @@
+ 	ext = (Options.platform == 'win32') and '.exe,.com,.bat,.cmd' or ''
+ 	for y in [filename+x for x in ext.split(',')]:
+ 		for directory in path_list:
+-			x = os.path.join(directory, y)
++			a = os.path.join(conf.env.SYSROOTDIR, directory)
++			x = os.path.join(a, y)
+ 			if os.path.isfile(x):
+ 				if var: env[var] = x
+ 				return x

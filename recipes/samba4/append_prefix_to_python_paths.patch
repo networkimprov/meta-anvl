@@ -1,0 +1,16 @@
+diff -ruN samba-4.0.6.orig/buildtools/wafadmin/Tools/python.py samba-4.0.6/buildtools/wafadmin/Tools/python.py
+--- samba-4.0.6.orig/buildtools/wafadmin/Tools/python.py	2013-02-05 05:25:25.000000000 -0700
++++ samba-4.0.6/buildtools/wafadmin/Tools/python.py	2013-05-26 18:15:43.144192836 -0600
+@@ -178,6 +178,12 @@
+ 	except RuntimeError:
+ 		conf.fatal("Python development headers not found (-v for details).")
+ 
++        if 'SYSROOTDIR' not in conf.env:
++        	conf.fatal("SYSROOTDIR configuration variable must be set")
++        python_prefix = "%s/%s" % (conf.env.SYSROOTDIR, python_prefix)
++        python_LIBDIR = "%s/%s" % (conf.env.SYSROOTDIR, python_LIBDIR)
++        INCLUDEPY = "%s/%s" % (conf.env.SYSROOTDIR, INCLUDEPY)
++
+ 	conf.log.write("""Configuration returned from %r:
+ python_prefix = %r
+ python_SO = %r
