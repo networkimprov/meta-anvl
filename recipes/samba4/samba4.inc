@@ -12,7 +12,7 @@ SRC_URI = "http://samba.org/samba/ftp/stable/samba-${PV}.tar.gz \
 
 S = "${WORKDIR}/samba-${PV}"
 
-inherit update-rc.d qemu
+inherit qemu
 
 # Large stack is required at least on x86_64 host, otherwise random segfaults appear:
 QEMU = "${@qemu_target_binary(d)} ${QEMU_OPTIONS} -s 1048576 -L ${STAGING_DIR_TARGET} -E LD_LIBRARY_PATH=${STAGING_BASELIBDIR}"
@@ -23,15 +23,13 @@ EXTRA_OEMAKE += 'QEMU="${QEMU}"'
 # in the samba config by --with-foodir=dirfoo - even if the --with is not
 # specified!  Fix that here.  Set the privatedir to /etc/samba/private.
 
-INITSCRIPT_PACKAGES = "samba winbind"
-INITSCRIPT_NAME_samba = "samba"
-INITSCRIPT_NAME_winbind = "winbind"
-# No dependencies, goes in at level 20 (NOTE: take care with the
-# level, later levels put the shutdown later too - see the links
-# in rc6.d, the shutdown must precede network shutdown).
-INITSCRIPT_PARAMS = "defaults"
-#CONFFILES_${PN} = "${sysconfdir}/samba/smb.conf"
+CONFFILES_${PN} = "/etc/samba/smb.conf"
 
+# XXX Values of the directory paths passed into waf should be absolute,
+# and waf itself should take care of prepending sysrootdir when needed
+#
+# XXX Investigate why parallel make and --disable-rpath don't work as
+# expected
 do_configure() {
 	
 	CPPPATH_ST="-I${STAGING_DIR}/${MACHINE}/%" \
@@ -65,6 +63,7 @@ do_install() {
         buildtools/bin/waf install
 }
 
+# XXX remove the python2.7 and perl5 dependence
 FILES_${PN}-dbg += "${libdir}/samba/.debug"
 FILES_${PN}-dbg += "${libdir}/samba/service/.debug"
 FILES_${PN}-dbg += "${libdir}/samba/nss_info/.debug"
