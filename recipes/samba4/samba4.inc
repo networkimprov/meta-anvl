@@ -65,60 +65,71 @@ do_install() {
         buildtools/bin/waf install
 }
 
-FILES_${PN}-dbg += "/usr/lib/samba/.debug"
-FILES_${PN}-dbg += "/usr/lib/samba/service/.debug"
-FILES_${PN}-dbg += "/usr/lib/samba/nss_info/.debug"
-FILES_${PN}-dbg += "/usr/lib/samba/auth/.debug"
-FILES_${PN}-dbg += "/usr/lib/samba/process_model/.debug"
-FILES_${PN}-dbg += "/usr/lib/samba/ldb/.debug"
-FILES_${PN}-dbg += "/usr/lib/samba/vfs/.debug"
-FILES_${PN}-dbg += "/usr/lib/samba/gensec/.debug"
-FILES_${PN}-dbg += "/usr/lib/samba/bind9/.debug"
-FILES_${PN}-dbg += "/usr/lib/samba/idmap/.debug"
-FILES_${PN}-dbg += "/usr/lib/python2.7/site-packages/.debug"
-FILES_${PN}-dbg += "/usr/lib/python2.7/site-packages/samba/.debug"
-FILES_${PN}-dbg += "/usr/lib/python2.7/site-packages/dcerpc/.debug"
-FILES_${PN}-dbg += "/usr/lib/python2.7/site-packages/samba/samba3/.debug"
-FILES_${PN}-dbg += "/usr/lib/python2.7/site-packages/samba/dcerpc/.debug"
-FILES_${PN}-dbg += "/usr/lib/security/.debug"
-FILES_${PN} += "/usr/lib/samba"
+FILES_${PN}-dbg += "${libdir}/samba/.debug"
+FILES_${PN}-dbg += "${libdir}/samba/service/.debug"
+FILES_${PN}-dbg += "${libdir}/samba/nss_info/.debug"
+FILES_${PN}-dbg += "${libdir}/samba/auth/.debug"
+FILES_${PN}-dbg += "${libdir}/samba/process_model/.debug"
+FILES_${PN}-dbg += "${libdir}/samba/ldb/.debug"
+FILES_${PN}-dbg += "${libdir}/samba/vfs/.debug"
+FILES_${PN}-dbg += "${libdir}/samba/gensec/.debug"
+FILES_${PN}-dbg += "${libdir}/samba/bind9/.debug"
+FILES_${PN}-dbg += "${libdir}/samba/idmap/.debug"
+FILES_${PN}-dbg += "${libdir}/python2.7/site-packages/.debug"
+FILES_${PN}-dbg += "${libdir}/python2.7/site-packages/samba/.debug"
+FILES_${PN}-dbg += "${libdir}/python2.7/site-packages/dcerpc/.debug"
+FILES_${PN}-dbg += "${libdir}/python2.7/site-packages/samba/samba3/.debug"
+FILES_${PN}-dbg += "${libdir}/python2.7/site-packages/samba/dcerpc/.debug"
+FILES_${PN}-dbg += "${libdir}/security/.debug"
+
+#FILES_winbind += "${libdir}/winbind_krb5_locator.so"
+#FILES_winbind += "${libdir}/security/pam_winbind.so"
+
+#FILES_libtdb += "${libdir}/libtdb.so.*"
+
+FILES_${PN} += "${libdir}/samba"
 FILES_${PN} += "/usr/share/samba"
 FILES_${PN} += "/usr/share/perl5/Parse"
-FILES_${PN} += "/usr/lib/python2.7/site-packages/samba"
-FILES_${PN} += "/usr/lib/python2.7/site-packages/talloc.so"
-FILES_${PN} += "/usr/lib/python2.7/site-packages/ldb.so"
-FILES_${PN} += "/usr/lib/python2.7/site-packages/_tevent.so"
-FILES_${PN} += "/usr/lib/python2.7/site-packages/tevent.so"
-FILES_${PN} += "/usr/lib/python2.7/site-packages/tevent.py"
-FILES_${PN} += "/usr/lib/python2.7/site-packages/tdb.so"
-FILES_${PN} += "/usr/lib/security/pam_smbpass.so"
-FILES_${PN} += "/usr/lib/security/pam_winbind.so"
-FILES_${PN} += "/usr/lib/winbind_krb5_locator.so"
-FILES_${PN} += "/usr/lib/mit_samba.so"
+FILES_${PN} += "${libdir}/python2.7/site-packages/samba"
+FILES_${PN} += "${libdir}/python2.7/site-packages/talloc.so"
+FILES_${PN} += "${libdir}/python2.7/site-packages/ldb.so"
+FILES_${PN} += "${libdir}/python2.7/site-packages/_tevent.so"
+FILES_${PN} += "${libdir}/python2.7/site-packages/tevent.so"
+FILES_${PN} += "${libdir}/python2.7/site-packages/tevent.py"
+FILES_${PN} += "${libdir}/python2.7/site-packages/tdb.so"
+FILES_${PN} += "${libdir}/security/pam_smbpass.so"
+FILES_${PN} += "${libdir}/security/pam_winbind.so"
+FILES_${PN} += "${libdir}/winbind_krb5_locator.so"
+FILES_${PN} += "${libdir}/mit_samba.so"
+FILES_${PN} += "/lib/systemd/system"
+FILES_${PN} += "/usr/lib/tmpfiles.d"
 
 
-#do_install_append() {
+do_install_append() {
+	# Install systemd files
+	install -d ${D}/lib/systemd/system
+	install -d ${D}/usr/lib/tmpfiles.d
+	install -D -m 644 ${WORKDIR}/samba-${PV}/packaging/systemd/*.service ${D}/lib/systemd/system/
+	install -D -m 644 ${WORKDIR}/samba-${PV}/packaging/systemd/samba.conf.tmp ${D}/usr/lib/tmpfiles.d/
+
+	# Install smb.conf file
+	install -D -m 644 ${WORKDIR}/samba-${PV}/packaging/LSB/smb.conf ${D}${sysconfdir}/samba/smb.conf
+
+	install -d ${D}/var/log/samba
+	install -d ${D}/var/spool/samba
+
 #	install -d ${D}${libdir}/pkgconfig/
-#	cp ${WORKDIR}/tdb.pc ${D}${libdir}/pkgconfig/
-#	mv ${D}${libdir}/libsmbclient.so ${D}${libdir}/libsmbclient.so.0 || true
-#	ln -sf libsmbclient.so.0 ${D}${libdir}/libsmbclient.so
-#	mkdir -p ${D}${base_sbindir}
-#	rm -f ${D}${bindir}/*.old
-#	rm -f ${D}${sbindir}/*.old
-#	[ -f ${D}${sbindir}/mount.cifs ] && mv ${D}${sbindir}/mount.cifs ${D}${base_sbindir}/
-#	[ -f ${D}${sbindir}/umount.cifs ] && mv ${D}${sbindir}/umount.cifs ${D}${base_sbindir}/
-#
-#       install -D -m 755 ${WORKDIR}/init.samba ${D}${sysconfdir}/init.d/samba
-#       install -D -m 755 ${WORKDIR}/init.winbind ${D}${sysconfdir}/init.d/winbind
-#	install -D -m 644 ${WORKDIR}/smb.conf ${D}${sysconfdir}/samba/smb.conf
-#	install -D -m 644 ${WORKDIR}/volatiles.03_samba ${D}${sysconfdir}/default/volatiles/volatiles.03_samba
-#	install -d ${D}/var/log/samba
-#	install -d ${D}/var/spool/samba
+#	cp ${WORKDIR}/samba-${PV}/tdb.pc ${D}${libdir}/pkgconfig/
 
-# Install other stuff not installed by "make install"
-#        install -m 0644 ${WORKDIR}/${PN}-${PV}/nsswitch/libnss_winbind.so ${D}${libdir}/libnss_winbind.so.2
-#        install -m 0644 ${WORKDIR}/${PN}-${PV}/nsswitch/libnss_wins.so ${D}${libdir}/libnss_wins.so.2
-#}
+#	install -D -m 755 ${WORKDIR}/init.samba ${D}${sysconfdir}/init.d/samba
+#	install -D -m 755 ${WORKDIR}/init.winbind ${D}${sysconfdir}/init.d/winbind
+
+#	install -D -m 644 ${WORKDIR}/volatiles.03_samba ${D}${sysconfdir}/default/volatiles/volatiles.03_samba
+
+	# Install other stuff not installed by "make install"
+#	install -m 0644 ${WORKDIR}/${PN}-${PV}/nsswitch/libnss_winbind.so ${D}${libdir}/libnss_winbind.so.2
+#	install -m 0644 ${WORKDIR}/${PN}-${PV}/nsswitch/libnss_wins.so ${D}${libdir}/libnss_wins.so.2
+}
 
 
 
